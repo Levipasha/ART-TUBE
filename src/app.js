@@ -17,7 +17,8 @@ const { mediaRouter } = require('./routes/media');
 const { notificationRouter } = require('./routes/notification');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || 'uploads';
-const uploadsAbsPath = path.join(__dirname, '..', UPLOAD_DIR);
+// Vercel serverless: project directory is read-only. Use /tmp for any runtime writes.
+const uploadsAbsPath = process.env.VERCEL ? path.join('/tmp', UPLOAD_DIR) : path.join(__dirname, '..', UPLOAD_DIR);
 
 function loadDotEnvForLocalDev() {
   // On Vercel, env vars are injected by the platform.
@@ -51,7 +52,11 @@ async function ensureMongoConnected(mongoUri) {
 }
 
 function createExpressApp({ mongoUri, sessionSecret, jwtSecret }) {
-  fs.mkdirSync(uploadsAbsPath, { recursive: true });
+  try {
+    fs.mkdirSync(uploadsAbsPath, { recursive: true });
+  } catch {
+    // ignore on platforms where filesystem is restricted
+  }
 
   const app = express();
   app.set('trust proxy', 1);
@@ -106,7 +111,12 @@ function createExpressApp({ mongoUri, sessionSecret, jwtSecret }) {
   );
 
   // Note: Vercel serverless filesystem is not persistent, so `/uploads` is best-effort only.
-  app.use('/uploads', express.static(uploadsAbsPath));
+  // Also, only mount if the directory is accessible.
+  try {
+    app.use('/uploads', express.static(uploadsAbsPath));
+  } catch {
+    // ignore
+  }
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
   app.use('/api/auth', authRouter);
